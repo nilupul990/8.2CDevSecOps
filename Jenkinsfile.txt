@@ -29,5 +29,29 @@ pipeline {
         bat 'cmd /c "npm audit" || exit /b 0'
       }
     }
+    stage('SonarCloud Analysis') {
+  steps {
+    withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+      powershell '''
+        $ErrorActionPreference = "Stop"
+        $scannerDir = "sonar-scanner"
+        if (-not (Test-Path $scannerDir)) {
+          # 1) Download the SonarScanner CLI .zip from SonarSource (copy the official URL)
+          $SCANNER_URL = "<PASTE_OFFICIAL_SCANNER_ZIP_URL>"
+          Invoke-WebRequest -Uri $SCANNER_URL -OutFile "scanner.zip"
+          Expand-Archive -Path "scanner.zip" -DestinationPath "."
+          # If the extracted folder has a versioned name, rename it for simplicity:
+          Get-ChildItem -Directory | Where-Object { $_.Name -like "sonar-scanner-*" } | Select-Object -First 1 | ForEach-Object {
+            Rename-Item $_.FullName $scannerDir
+          }
+        }
+        # 2) Run the scanner (uses sonar-project.properties in repo root)
+        $env:SONAR_TOKEN = $env:SONAR_TOKEN
+        .\\sonar-scanner\\bin\\sonar-scanner.bat
+      '''
+    }
+  }
+}
+
   }
 }
