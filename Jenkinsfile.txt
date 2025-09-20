@@ -37,7 +37,7 @@ pipeline {
         $scannerDir = "sonar-scanner"
         if (-not (Test-Path $scannerDir)) {
           # 1) Download the SonarScanner CLI .zip from SonarSource (copy the official URL)
-          $SCANNER_URL = "<PASTE_OFFICIAL_SCANNER_ZIP_URL>"
+          $SCANNER_URL = "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.2.0.5079-windows-x64.zip"
           Invoke-WebRequest -Uri $SCANNER_URL -OutFile "scanner.zip"
           Expand-Archive -Path "scanner.zip" -DestinationPath "."
           # If the extracted folder has a versioned name, rename it for simplicity:
