@@ -1,57 +1,82 @@
 pipeline {
   agent any
+  // avoid the extra "Declarative: Checkout SCM" step and add timestamps in logs
+  options { skipDefaultCheckout(true); timestamps() }
 
   stages {
+
     stage('Checkout') {
       steps {
+        // Use YOUR repo URL + branch
         git branch: 'main', url: 'https://github.com/nilupul990/8.2CDevSecOps.git'
       }
     }
+
     stage('Install Dependencies') {
       steps {
+        // Optional sanity checks
+        bat 'node -v'
+        bat 'npm -v'
         bat 'npm install'
       }
     }
+
     stage('Run Tests') {
       steps {
-        // Allow pipeline to continue even if tests fail:
+        // Continue the pipeline even if tests fail (snyk test will complain if not authed)
         bat 'cmd /c "npm test" || exit /b 0'
       }
     }
+
     stage('Generate Coverage Report') {
       steps {
+        // Continue even if "coverage" script is missing in package.json
         bat 'cmd /c "npm run coverage" || exit /b 0'
       }
     }
+
     stage('NPM Audit (Security Scan)') {
       steps {
-        // Show CVEs but don't fail the whole run:
+        // Show CVEs but don’t fail the whole pipeline
         bat 'cmd /c "npm audit" || exit /b 0'
       }
     }
-    stage('SonarCloud Analysis') {
-  steps {
-    withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
-      powershell '''
-        $ErrorActionPreference = "Stop"
-        $scannerDir = "sonar-scanner"
-        if (-not (Test-Path $scannerDir)) {
-          # 1) Download the SonarScanner CLI .zip from SonarSource (copy the official URL)
-          $SCANNER_URL = "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-7.2.0.5079-windows-x64.zip"
-          Invoke-WebRequest -Uri $SCANNER_URL -OutFile "scanner.zip"
-          Expand-Archive -Path "scanner.zip" -DestinationPath "."
-          # If the extracted folder has a versioned name, rename it for simplicity:
-          Get-ChildItem -Directory | Where-Object { $_.Name -like "sonar-scanner-*" } | Select-Object -First 1 | ForEach-Object {
-            Rename-Item $_.FullName $scannerDir
-          }
-        }
-        # 2) Run the scanner (uses sonar-project.properties in repo root)
-        $env:SONAR_TOKEN = $env:SONAR_TOKEN
-        .\\sonar-scanner\\bin\\sonar-scanner.bat
-      '''
-    }
-  }
-}
 
+    stage('SonarCloud Analysis') {
+      steps {
+        // SONAR_TOKEN is a Jenkins credential (Secret text) with ID = SONAR_TOKEN
+        withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+          powershell '''
+            $ErrorActionPreference = "Stop"
+
+            $SCANNER_DIR = "sonar-scanner"
+            $SCANNER_ZIP = "scanner.zip"
+            # Official Windows x64 CLI zip (bundled JRE)
+            $SCANNER_URL = "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.2.1.4610-windows-x64.zip"
+
+            if (-not (Test-Path $SCANNER_DIR)) {
+              Write-Host "Downloading SonarScanner CLI from $SCANNER_URL"
+              Invoke-WebRequest -Uri $SCANNER_URL -OutFile $SCANNER_ZIP
+              if (-not (Test-Path $SCANNER_ZIP)) { throw "Download failed: $SCANNER_ZIP not found" }
+
+              Expand-Archive -Path $SCANNER_ZIP -DestinationPath "." -Force
+
+              $extracted = Get-ChildItem -Directory | Where-Object { $_.Name -like "sonar-scanner-*" } | Select-Object -First 1
+              if (-not $extracted) { throw "Extracted scanner folder not found" }
+
+              Rename-Item $extracted.FullName $SCANNER_DIR -Force
+            }
+
+            # withCredentials already exposes SONAR_TOKEN to this PowerShell session.
+            # sonar-project.properties in the repo should contain:
+            #   sonar.projectKey=...
+            #   sonar.organization=...
+            #   sonar.host.url=https://sonarcloud.io
+            #   sonar.login=${SONAR_TOKEN}
+            .\\$SCANNER_DIR\\bin\\sonar-scanner.bat
+          '''
+        }
+      }
+    }
   }
 }
